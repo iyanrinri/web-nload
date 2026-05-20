@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <title>Beltway PC Monitor</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: sans-serif; background: #1e1e1e; color: #fff; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .stats { display: flex; justify-content: space-between; margin-bottom: 20px; }
+        .card { background: #2d2d2d; padding: 15px; border-radius: 8px; width: 45%; text-align: center; }
+        .card h2 { margin: 0; color: #aaa; }
+        .card p { font-size: 24px; font-weight: bold; margin: 10px 0 0 0; }
+        .incoming { color: #00ff66; }
+        .outgoing { color: #00ccff; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Web Traffic Beltway PC Monitor</h1>
+        
+        <div class="stats">
+            <div class="card">
+                <h2>Incoming (Curr)</h2>
+                <p class="incoming" id="rx-val">0.00 GByte/s</p>
+            </div>
+            <div class="card">
+                <h2>Outgoing (Curr)</h2>
+                <p class="outgoing" id="tx-val">0.00 GByte/s</p>
+            </div>
+        </div>
+
+        <canvas id="trafficChart" width="400" height="200"></canvas>
+    </div>
+
+<script>
+    const socket = io();
+    const ctx = document.getElementById('trafficChart').getContext('2d');
+    
+    // Fungsi ajaib untuk otomatisasi unit (Auto-scaling)
+    function formatBytes(bytes, decimals = 2) {
+        if (bytes === 0) return { value: 0, unit: 'Byte/s' };
+
+        const k = 1024;
+        const dm = decimals < 0 ? 0 : decimals;
+        const sizes = ['Byte/s', 'kByte/s', 'MByte/s', 'GByte/s', 'TByte/s'];
+
+        // Mencari indeks unit yang cocok
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        
+        // Jaga-jaga jika i melebihi array sizes
+        const safeIndex = Math.min(i, sizes.length - 1);
+
+        return {
+            value: parseFloat((bytes / Math.pow(k, safeIndex)).toFixed(dm)),
+            unit: sizes[safeIndex],
+            display: parseFloat((bytes / Math.pow(k, safeIndex)).toFixed(dm)) + ' ' + sizes[safeIndex]
+        };
+    }
+
+    // Setup Grafik (Kita set angkanya dalam MB/GB sesuai kebutuhan, di sini kita plot dalam MB agar grafik stabil)
+    const chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: Array(20).fill(''),
+            datasets: [
+                { label: 'Incoming', borderColor: '#00ff66', data: Array(20).fill(0), fill: false },
+                { label: 'Outgoing', borderColor: '#00ccff', data: Array(20).fill(0), fill: false }
+            ]
+        },
+        options: { 
+            scales: { 
+                y: { 
+                    beginAtZero: true,
+                    title: { display: true, text: 'Megabytes (MByte/s)' } // Kita kunci sumbu Y grafik dalam MB agar naik turunnya rapi
+                } 
+            } 
+        }
+    });
+
+    // Terima data mentah dari server
+    socket.on('traffic-data', (data) => {
+        // Format data mentah ke Unit Otomatis untuk Teks Card
+        const rxFormatted = formatBytes(data.rx);
+        const txFormatted = formatBytes(data.tx);
+
+        // Update teks angka secara otomatis (bisa kByte/s, MByte/s, atau GByte/s)
+        document.getElementById('rx-val').innerText = rxFormatted.display;
+        document.getElementById('tx-val').innerText = txFormatted.display;
+
+        // Untuk grafik, kita konversi datanya ke MByte/s secara konsisten agar grafiknya tidak "lompat-lompat" skalanya
+        const rxInMB = data.rx / (1024 * 1024);
+        const txInMB = data.tx / (1024 * 1024);
+
+        chart.data.datasets[0].data.shift();
+        chart.data.datasets[0].data.push(rxInMB);
+        
+        chart.data.datasets[1].data.shift();
+        chart.data.datasets[1].data.push(txInMB);
+        
+        chart.update();
+    });
+</script>
+</body>
+</html>
