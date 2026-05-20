@@ -433,6 +433,8 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
         }
 
         .chart-panel-title {
@@ -447,6 +449,18 @@
 
         .chart-panel-title i {
             color: var(--accent-purple);
+        }
+
+        .chart-controls {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .chart-time-control .segment-btn {
+            padding: 5px 12px;
+            font-size: 11px;
         }
 
         .chart-legend {
@@ -478,6 +492,17 @@
         }
 
         /* Responsive styling adjustments */
+        @media (max-width: 768px) {
+            .chart-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            .chart-controls {
+                width: 100%;
+                justify-content: space-between;
+            }
+        }
+
         @media (max-width: 640px) {
             body {
                 padding: 15px 10px;
@@ -607,16 +632,27 @@
         <div class="glass-panel chart-panel">
             <div class="chart-header">
                 <div class="chart-panel-title">
-                    <i class="fa-solid fa-wave-square"></i> Live Traffic Profile
+                    <i class="fa-solid fa-wave-square"></i> Traffic Profile
                 </div>
-                <div class="chart-legend">
-                    <div class="legend-item">
-                        <span class="legend-dot legend-rx"></span>
-                        <span>Incoming</span>
+                <div class="chart-controls">
+                    <!-- Timeframe Switcher Segmented Control -->
+                    <div class="segmented-control chart-time-control">
+                        <button id="btn-tf-5m" class="segment-btn active" onclick="changeTimeframe('5m')">5 Min</button>
+                        <button id="btn-tf-15m" class="segment-btn" onclick="changeTimeframe('15m')">15 Min</button>
+                        <button id="btn-tf-1h" class="segment-btn" onclick="changeTimeframe('1h')">1 Hour</button>
+                        <button id="btn-tf-6h" class="segment-btn" onclick="changeTimeframe('6h')">6 Hours</button>
+                        <button id="btn-tf-24h" class="segment-btn" onclick="changeTimeframe('24h')">24 Hours</button>
                     </div>
-                    <div class="legend-item">
-                        <span class="legend-dot legend-tx"></span>
-                        <span>Outgoing</span>
+                    
+                    <div class="chart-legend">
+                        <div class="legend-item">
+                            <span class="legend-dot legend-rx"></span>
+                            <span>Incoming</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-dot legend-tx"></span>
+                            <span>Outgoing</span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -627,26 +663,29 @@
     </div>
 
 <script>
-    // Inisialisasi Socket
+    // ==================== INITIALIZATION ====================
     const socket = io();
-    
-    // Preferensi Unit Utama (diambil dari localStorage atau default 'Bytes')
+
+    // User preference: primary display unit (Bytes or bits)
     let primaryUnit = localStorage.getItem('hyperflow_primary_unit') || 'Bytes';
-    
-    // Simpan data historis mentah (Bytes/s) untuk mengganti skala grafik secara dinamis
-    const rawRxPoints = [];
-    const rawTxPoints = [];
-    const chartLabels = Array(20).fill('');
-    
-    // Statistik akumulasi untuk rata-rata dan puncak sesi (dalam unit Bytes)
+
+    // Active timeframe for chart display
+    let activeTimeframe = '5m';
+
+    // Client-side live buffer for 5-minute high-resolution view (every 2 s tick)
+    const liveBuffer = [];
+
+    // Server-provided history data for longer timeframes (15 m, 1 h, 6 h, 24 h)
+    let serverHistory = [];
+
+    // Session statistics (accumulates since page open)
     let sessionRxTotal = 0;
     let sessionTxTotal = 0;
     let sessionTickCount = 0;
-    
     let rxPeakBytes = 0;
     let txPeakBytes = 0;
 
-    // Set button active di segmented control secara visual sesuai unit tersimpan
+    // Sync unit buttons on load
     updateUnitButtonsUI();
 
     // Setup Canvas dan Chart.js
@@ -664,7 +703,7 @@
     const chart = new Chart(ctx, {
         type: 'line',
         data: {
-            labels: chartLabels,
+            labels: [],
             datasets: [
                 {
                     label: 'Incoming',
@@ -674,7 +713,7 @@
                     pointRadius: 0,
                     pointHoverRadius: 5,
                     pointBackgroundColor: '#00e676',
-                    data: Array(20).fill(0),
+                    data: [],
                     fill: true,
                     tension: 0.4
                 },
@@ -686,7 +725,7 @@
                     pointRadius: 0,
                     pointHoverRadius: 5,
                     pointBackgroundColor: '#00e5ff',
-                    data: Array(20).fill(0),
+                    data: [],
                     fill: true,
                     tension: 0.4
                 }
@@ -695,6 +734,10 @@
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            interaction: {
+                mode: 'index',
+                intersect: false
+            },
             plugins: {
                 legend: { display: false },
                 tooltip: {
@@ -703,14 +746,20 @@
                     bodyFont: { family: 'JetBrains Mono', size: 13 },
                     borderColor: 'rgba(255, 255, 255, 0.1)',
                     borderWidth: 1,
-                    padding: 10,
+                    padding: 12,
                     cornerRadius: 8,
                     displayColors: true,
                     callbacks: {
                         label: function(context) {
-                            const val = context.parsed.y;
-                            const unitLabel = primaryUnit === 'Bytes' ? ' MB/s' : ' Mbps';
-                            return ' ' + context.dataset.label + ': ' + val.toFixed(2) + unitLabel;
+                            // Read raw Bytes from the custom _rawBytes array stored on the dataset
+                            var rawArr = context.dataset._rawBytes;
+                            var rawVal = rawArr && rawArr[context.dataIndex] !== undefined ? rawArr[context.dataIndex] : 0;
+
+                            // Always show BOTH units in the tooltip
+                            var speedBytes = formatSpeed(rawVal, 'Bytes');
+                            var speedBits  = formatSpeed(rawVal, 'bits');
+
+                            return ' ' + context.dataset.label + ': ' + speedBytes.display + '  (' + speedBits.display + ')';
                         }
                     }
                 }
@@ -718,7 +767,11 @@
             scales: {
                 x: {
                     grid: { display: false },
-                    ticks: { display: false }
+                    ticks: {
+                        color: '#94a3b8',
+                        font: { family: 'Outfit', size: 10 },
+                        maxTicksLimit: 8
+                    }
                 },
                 y: {
                     beginAtZero: true,
@@ -735,7 +788,7 @@
                     },
                     title: {
                         display: true,
-                        text: primaryUnit === 'Bytes' ? 'Speed (MB/s)' : 'Speed (Mbps)',
+                        text: primaryUnit === 'Bytes' ? 'Kecepatan (MB/s)' : 'Kecepatan (Mbps)',
                         color: '#94a3b8',
                         font: { family: 'Outfit', size: 12, weight: '600' }
                     }
@@ -744,39 +797,33 @@
         }
     });
 
-    // FUNGSI UTAMA: Konversi unit Bytes/s atau bits/s otomatis (Auto Scaling)
+    // ==================== UTILITY FUNCTIONS ====================
+
+    // Auto-scaling speed formatter — converts raw Bytes/s into human-readable Bytes or bits units
     function formatSpeed(bytesPerSec, type = 'Bytes', decimals = 2) {
         if (type === 'Bytes') {
             const val = bytesPerSec;
-            if (val <= 0) return { value: '0.00', unit: 'B/s' };
+            if (val <= 0) return { value: '0.00', unit: 'B/s', display: '0.00 B/s' };
             const k = 1024;
             const dm = decimals < 0 ? 0 : decimals;
             const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s', 'TB/s'];
             const i = Math.floor(Math.log(val) / Math.log(k));
             const safeIndex = Math.min(i, sizes.length - 1);
-            return {
-                value: (val / Math.pow(k, safeIndex)).toFixed(dm),
-                unit: sizes[safeIndex],
-                display: (val / Math.pow(k, safeIndex)).toFixed(dm) + ' ' + sizes[safeIndex]
-            };
+            const formatted = (val / Math.pow(k, safeIndex)).toFixed(dm);
+            return { value: formatted, unit: sizes[safeIndex], display: formatted + ' ' + sizes[safeIndex] };
         } else {
-            // bits/s (1 Byte = 8 bits, standard networking uses 1000 base for bits)
             const val = bytesPerSec * 8;
-            if (val <= 0) return { value: '0.00', unit: 'bps' };
+            if (val <= 0) return { value: '0.00', unit: 'bps', display: '0.00 bps' };
             const k = 1000;
             const dm = decimals < 0 ? 0 : decimals;
             const sizes = ['bps', 'Kbps', 'Mbps', 'Gbps', 'Tbps'];
             const i = Math.floor(Math.log(val) / Math.log(k));
             const safeIndex = Math.min(i, sizes.length - 1);
-            return {
-                value: (val / Math.pow(k, safeIndex)).toFixed(dm),
-                unit: sizes[safeIndex],
-                display: (val / Math.pow(k, safeIndex)).toFixed(dm) + ' ' + sizes[safeIndex]
-            };
+            const formatted = (val / Math.pow(k, safeIndex)).toFixed(dm);
+            return { value: formatted, unit: sizes[safeIndex], display: formatted + ' ' + sizes[safeIndex] };
         }
     }
 
-    // Update UI Segmented Control
     function updateUnitButtonsUI() {
         if (primaryUnit === 'Bytes') {
             document.getElementById('btn-bytes').classList.add('active');
@@ -787,133 +834,223 @@
         }
     }
 
-    // Event Handler saat unit utama diubah
     function changePrimaryUnit(unit) {
         if (primaryUnit === unit) return;
         primaryUnit = unit;
         localStorage.setItem('hyperflow_primary_unit', unit);
-        
         updateUnitButtonsUI();
-        
-        // Perbarui label sumbu Y pada chart
-        chart.options.scales.y.title.text = primaryUnit === 'Bytes' ? 'Speed (MB/s)' : 'Speed (Mbps)';
-        
-        // Gambar ulang grafik dengan mengonversi ulang data historis yang tersimpan
+        chart.options.scales.y.title.text = primaryUnit === 'Bytes' ? 'Kecepatan (MB/s)' : 'Kecepatan (Mbps)';
         renderChartData();
     }
 
-    // Map data raw (Bytes/s) ke unit visual grafik (MB/s atau Mbps)
-    function renderChartData() {
-        const mappedRx = rawRxPoints.map(v => {
-            if (primaryUnit === 'Bytes') {
-                return v / (1024 * 1024); // ke MB/s
-            } else {
-                return (v * 8) / 1000000; // ke Mbps
-            }
-        });
+    // ==================== TIME RANGE HELPERS ====================
 
-        const mappedTx = rawTxPoints.map(v => {
-            if (primaryUnit === 'Bytes') {
-                return v / (1024 * 1024); // ke MB/s
-            } else {
-                return (v * 8) / 1000000; // ke Mbps
-            }
-        });
-
-        chart.data.datasets[0].data = mappedRx;
-        chart.data.datasets[1].data = mappedTx;
-        chart.update('none'); // Update tanpa animasi agar sangat responsif
+    function getTimeframeMs(tf) {
+        switch (tf) {
+            case '5m':  return 5 * 60 * 1000;
+            case '15m': return 15 * 60 * 1000;
+            case '1h':  return 60 * 60 * 1000;
+            case '6h':  return 6 * 60 * 60 * 1000;
+            case '24h': return 24 * 60 * 60 * 1000;
+            default:    return 5 * 60 * 1000;
+        }
     }
 
-    // Trigger visual flash/pulse pada kartu saat menerima update data
+    function changeTimeframe(tf) {
+        if (activeTimeframe === tf) return;
+        activeTimeframe = tf;
+
+        // Toggle active button styling
+        ['5m', '15m', '1h', '6h', '24h'].forEach(t => {
+            const btn = document.getElementById('btn-tf-' + t);
+            if (btn) btn.classList.toggle('active', t === tf);
+        });
+
+        if (tf === '5m') {
+            // 5 min uses the local live buffer (high-resolution)
+            renderChartData();
+        } else {
+            // Request historical data from the server
+            socket.emit('request-history', { range: tf, rangeMs: getTimeframeMs(tf) });
+        }
+    }
+
+    // ==================== CHART RENDERING ====================
+
+    // Compress data to a manageable number of visual points
+    function downsampleData(dataPoints, maxPoints) {
+        maxPoints = maxPoints || 120;
+        if (dataPoints.length <= maxPoints) return dataPoints;
+
+        const result = [];
+        const bucketSize = dataPoints.length / maxPoints;
+
+        for (let i = 0; i < maxPoints; i++) {
+            const start = Math.floor(i * bucketSize);
+            const end   = Math.floor((i + 1) * bucketSize);
+            let sumRx = 0, sumTx = 0, sumTime = 0, count = 0;
+
+            for (let j = start; j < end && j < dataPoints.length; j++) {
+                sumRx   += dataPoints[j].rx;
+                sumTx   += dataPoints[j].tx;
+                sumTime += dataPoints[j].t;
+                count++;
+            }
+
+            if (count > 0) {
+                result.push({
+                    t:  Math.round(sumTime / count),
+                    rx: sumRx / count,
+                    tx: sumTx / count
+                });
+            }
+        }
+        return result;
+    }
+
+    function formatLabelTime(timestamp, timeframe) {
+        const d    = new Date(timestamp);
+        const hrs  = String(d.getHours()).padStart(2, '0');
+        const mins = String(d.getMinutes()).padStart(2, '0');
+        const secs = String(d.getSeconds()).padStart(2, '0');
+
+        if (timeframe === '5m' || timeframe === '15m') {
+            return hrs + ':' + mins + ':' + secs;
+        }
+        return hrs + ':' + mins;
+    }
+
+    function renderChartData() {
+        let sourceData = [];
+
+        if (activeTimeframe === '5m') {
+            sourceData = liveBuffer;
+        } else {
+            sourceData = downsampleData(serverHistory, 120);
+        }
+
+        // Conversion factor: Bytes→MB/s or Bytes→Mbps
+        var factor = primaryUnit === 'Bytes' ? (1024 * 1024) : (1000000 / 8);
+
+        // Use plain number arrays so Chart.js draws lines correctly
+        chart.data.labels           = sourceData.map(function(v) { return formatLabelTime(v.t, activeTimeframe); });
+        chart.data.datasets[0].data = sourceData.map(function(v) { return v.rx / factor; });
+        chart.data.datasets[1].data = sourceData.map(function(v) { return v.tx / factor; });
+
+        // Store raw Bytes in a custom property for tooltip access
+        chart.data.datasets[0]._rawBytes = sourceData.map(function(v) { return v.rx; });
+        chart.data.datasets[1]._rawBytes = sourceData.map(function(v) { return v.tx; });
+
+        chart.update('none');
+    }
+
+    // ==================== UI HELPERS ====================
+
     function triggerCardFlash(cardId) {
         const card = document.getElementById(cardId);
-        card.classList.add('updating');
-        setTimeout(() => {
-            card.classList.remove('updating');
-        }, 300);
+        if (card) {
+            card.classList.add('updating');
+            setTimeout(function() { card.classList.remove('updating'); }, 300);
+        }
     }
 
-    // Tangani data real-time dari Socket.io
-    socket.on('traffic-data', (data) => {
+    function updateSessionStatsUI() {
+        const avgRxBytes = sessionTickCount > 0 ? (sessionRxTotal / sessionTickCount) : 0;
+        const avgTxBytes = sessionTickCount > 0 ? (sessionTxTotal / sessionTickCount) : 0;
+
+        document.getElementById('rx-avg-val').innerText  = formatSpeed(avgRxBytes, primaryUnit).display;
+        document.getElementById('tx-avg-val').innerText  = formatSpeed(avgTxBytes, primaryUnit).display;
+        document.getElementById('rx-peak-val').innerText = formatSpeed(rxPeakBytes, primaryUnit).display;
+        document.getElementById('tx-peak-val').innerText = formatSpeed(txPeakBytes, primaryUnit).display;
+    }
+
+    // ==================== SOCKET.IO EVENT HANDLERS ====================
+
+    // On (re)connect — request history for the current timeframe if not in live 5 m mode
+    socket.on('connect', function() {
+        console.log('🔌 Terhubung ke server');
+        if (activeTimeframe !== '5m') {
+            socket.emit('request-history', { range: activeTimeframe, rangeMs: getTimeframeMs(activeTimeframe) });
+        }
+    });
+
+    // Receive historical data from server
+    socket.on('history-data', function(data) {
+        serverHistory = data.points || [];
+        renderChartData();
+    });
+
+    // Live traffic data (every 2 s from server)
+    socket.on('traffic-data', function(data) {
         const rxRaw = data.rx;
         const txRaw = data.tx;
+        const now   = data.timestamp || Date.now();
 
-        // Visual flash trigger
+        // Visual flash
         triggerCardFlash('incoming-card');
         triggerCardFlash('outgoing-card');
 
-        // 1. Akumulasi Statistik Sesi
+        // Session statistics
         sessionTickCount++;
         sessionRxTotal += rxRaw;
         sessionTxTotal += txRaw;
-
         if (rxRaw > rxPeakBytes) rxPeakBytes = rxRaw;
         if (txRaw > txPeakBytes) txPeakBytes = txRaw;
 
-        const avgRxBytes = sessionRxTotal / sessionTickCount;
-        const avgTxBytes = sessionTxTotal / sessionTickCount;
-
-        // 2. Format Kecepatan Utama & Sekunder
-        const rxPrimary = formatSpeed(rxRaw, primaryUnit);
-        const txPrimary = formatSpeed(txRaw, primaryUnit);
-        
-        // Unit sekunder adalah kebalikan dari unit utama terpilih
+        // Format & display primary speed
+        const rxPrimary   = formatSpeed(rxRaw, primaryUnit);
+        const txPrimary   = formatSpeed(txRaw, primaryUnit);
         const secondaryUnitType = primaryUnit === 'Bytes' ? 'bits' : 'Bytes';
         const rxSecondary = formatSpeed(rxRaw, secondaryUnitType);
         const txSecondary = formatSpeed(txRaw, secondaryUnitType);
 
-        // 3. Tampilkan Nilai Utama ke UI Card
-        document.getElementById('rx-main-val').innerText = rxPrimary.value;
+        document.getElementById('rx-main-val').innerText  = rxPrimary.value;
         document.getElementById('rx-main-unit').innerText = rxPrimary.unit;
-        
-        document.getElementById('tx-main-val').innerText = txPrimary.value;
+        document.getElementById('tx-main-val').innerText  = txPrimary.value;
         document.getElementById('tx-main-unit').innerText = txPrimary.unit;
 
-        // 4. Tampilkan Nilai Sekunder ke UI Card (di bawah nilai utama)
-        document.getElementById('rx-secondary-val').innerHTML = `<span style="font-family:'JetBrains Mono'">${rxSecondary.value}</span> ${rxSecondary.unit}`;
-        document.getElementById('tx-secondary-val').innerHTML = `<span style="font-family:'JetBrains Mono'">${txSecondary.value}</span> ${txSecondary.unit}`;
+        document.getElementById('rx-secondary-val').innerHTML = '<span style="font-family:\'JetBrains Mono\'">' + rxSecondary.value + '</span> ' + rxSecondary.unit;
+        document.getElementById('tx-secondary-val').innerHTML = '<span style="font-family:\'JetBrains Mono\'">' + txSecondary.value + '</span> ' + txSecondary.unit;
 
-        // 5. Tampilkan Statistik Sesi (Average & Peak) menggunakan unit primer terpilih
-        const rxAvgFormatted = formatSpeed(avgRxBytes, primaryUnit);
-        const txAvgFormatted = formatSpeed(avgTxBytes, primaryUnit);
-        const rxPeakFormatted = formatSpeed(rxPeakBytes, primaryUnit);
-        const txPeakFormatted = formatSpeed(txPeakBytes, primaryUnit);
+        // Update session stats
+        updateSessionStatsUI();
 
-        document.getElementById('rx-avg-val').innerText = rxAvgFormatted.display;
-        document.getElementById('tx-avg-val').innerText = txAvgFormatted.display;
-        document.getElementById('rx-peak-val').innerText = rxPeakFormatted.display;
-        document.getElementById('tx-peak-val').innerText = txPeakFormatted.display;
+        // Push to live buffer (max 150 points ≈ 5 min at 2 s intervals)
+        liveBuffer.push({ t: now, rx: rxRaw, tx: txRaw });
+        if (liveBuffer.length > 150) liveBuffer.shift();
 
-        // 6. Update Grafik Real-Time
-        rawRxPoints.push(rxRaw);
-        rawTxPoints.push(txRaw);
+        // Only re-render if we're viewing the 5 m live mode
+        if (activeTimeframe === '5m') {
+            renderChartData();
+        }
 
-        if (rawRxPoints.length > 20) rawRxPoints.shift();
-        if (rawTxPoints.length > 20) rawTxPoints.shift();
-
-        renderChartData();
-
-        // 7. Update status koneksi & metadata badge (simulasi vs live)
-        const badge = document.getElementById('conn-badge');
+        // Connection badge
+        const badge    = document.getElementById('conn-badge');
         const badgeText = document.getElementById('conn-status-text');
-
-        badge.className = 'status-badge connected';
-        if (data.simulated) {
-            badge.classList.add('simulated');
-            badgeText.innerHTML = `<i class="fa-solid fa-wand-magic-sparkles" style="color:#ff9800"></i> Simulated (macOS)`;
-        } else {
-            badgeText.innerHTML = `<i class="fa-solid fa-ethernet" style="color:#00e676"></i> Live (${data.interface})`;
+        if (badge && badgeText) {
+            badge.className = 'status-badge connected';
+            if (data.simulated) {
+                badge.classList.add('simulated');
+                badgeText.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles" style="color:#ff9800"></i> Simulated (macOS)';
+            } else {
+                badgeText.innerHTML = '<i class="fa-solid fa-ethernet" style="color:#00e676"></i> Live (' + data.interface + ')';
+            }
         }
     });
 
-    // Tangani saat server terputus
-    socket.on('disconnect', () => {
-        const badge = document.getElementById('conn-badge');
+    // Handle disconnection
+    socket.on('disconnect', function() {
+        const badge    = document.getElementById('conn-badge');
         const badgeText = document.getElementById('conn-status-text');
-        badge.className = 'status-badge';
-        badgeText.innerHTML = `<i class="fa-solid fa-circle-exclamation"></i> Disconnected`;
+        if (badge && badgeText) {
+            badge.className = 'status-badge';
+            badgeText.innerHTML = '<i class="fa-solid fa-circle-exclamation"></i> Disconnected';
+        }
     });
+
+    // Initial render (shows empty chart until first data arrives)
+    renderChartData();
 </script>
 </body>
 </html>
+
