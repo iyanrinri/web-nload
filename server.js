@@ -3,6 +3,7 @@ const app = express();
 const http = require('http').createServer(app);
 const io = require('socket.io')(http);
 const fs = require('fs');
+const os = require('os');
 
 app.use(express.static('public'));
 
@@ -121,7 +122,8 @@ setInterval(() => {
         tx: txSpeed,
         timestamp: now,
         simulated: !hasProcNetDev,
-        interface: hasProcNetDev ? networkInterface : 'Simulated (macOS)'
+        interface: hasProcNetDev ? networkInterface : 'Simulated (macOS)',
+        loadAvg: os.loadavg()
     });
 }, 2000);
 

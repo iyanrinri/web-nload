@@ -543,6 +543,12 @@
             </div>
             
             <div class="controls-container">
+                <!-- Status Load Server -->
+                <div id="load-badge" class="status-badge" style="border-color: rgba(124, 77, 255, 0.3); background: rgba(124, 77, 255, 0.05);">
+                    <i class="fa-solid fa-server" style="color: var(--accent-purple)"></i>
+                    <span id="load-text" style="font-family: 'JetBrains Mono', monospace; font-size: 11px;">Load: --</span>
+                </div>
+
                 <!-- Connection & Interface Badge -->
                 <div id="conn-badge" class="status-badge">
                     <span class="status-dot"></span>
@@ -1034,6 +1040,17 @@
                 badgeText.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles" style="color:#ff9800"></i> Simulated (macOS)';
             } else {
                 badgeText.innerHTML = '<i class="fa-solid fa-ethernet" style="color:#00e676"></i> Live (' + data.interface + ')';
+            }
+        }
+        
+        // Update Load Average
+        if (data.loadAvg) {
+            const loadText = document.getElementById('load-text');
+            if (loadText) {
+                const l1 = data.loadAvg[0].toFixed(2);
+                const l5 = data.loadAvg[1].toFixed(2);
+                const l15 = data.loadAvg[2].toFixed(2);
+                loadText.innerText = `Load: ${l1}, ${l5}, ${l15}`;
             }
         }
     });
