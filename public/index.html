@@ -648,6 +648,7 @@
                         <button id="btn-tf-1h" class="segment-btn" onclick="changeTimeframe('1h')">1 Hour</button>
                         <button id="btn-tf-6h" class="segment-btn" onclick="changeTimeframe('6h')">6 Hours</button>
                         <button id="btn-tf-24h" class="segment-btn" onclick="changeTimeframe('24h')">24 Hours</button>
+                        <button id="btn-tf-48h" class="segment-btn" onclick="changeTimeframe('48h')">48 Hours</button>
                     </div>
                     
                     <div class="chart-legend">
@@ -664,6 +665,34 @@
             </div>
             <div class="chart-container">
                 <canvas id="trafficChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Server Load Chart Panel -->
+        <div class="glass-panel chart-panel" style="margin-top: 20px;">
+            <div class="chart-header">
+                <div class="chart-panel-title">
+                    <i class="fa-solid fa-server" style="color: var(--accent-purple)"></i> Server Load Average Profile
+                </div>
+                <div class="chart-controls">
+                    <div class="chart-legend">
+                        <div class="legend-item">
+                            <span class="legend-dot" style="background: #7c4dff; box-shadow: 0 0 6px #7c4dff;"></span>
+                            <span>1 Min</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-dot" style="background: #ff4081; box-shadow: 0 0 6px #ff4081;"></span>
+                            <span>5 Min</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-dot" style="background: #00e5ff; box-shadow: 0 0 6px #00e5ff;"></span>
+                            <span>15 Min</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="chart-container">
+                <canvas id="loadChart"></canvas>
             </div>
         </div>
     </div>
@@ -803,6 +832,122 @@
         }
     });
 
+    // Setup Canvas dan Chart untuk Server Load
+    const loadCtx = document.getElementById('loadChart').getContext('2d');
+    
+    const l1Gradient = loadCtx.createLinearGradient(0, 0, 0, 240);
+    l1Gradient.addColorStop(0, 'rgba(124, 77, 255, 0.25)'); // purple
+    l1Gradient.addColorStop(1, 'rgba(124, 77, 255, 0.00)');
+
+    const l5Gradient = loadCtx.createLinearGradient(0, 0, 0, 240);
+    l5Gradient.addColorStop(0, 'rgba(255, 64, 129, 0.25)'); // pink
+    l5Gradient.addColorStop(1, 'rgba(255, 64, 129, 0.00)');
+
+    const l15Gradient = loadCtx.createLinearGradient(0, 0, 0, 240);
+    l15Gradient.addColorStop(0, 'rgba(0, 229, 255, 0.25)'); // cyan
+    l15Gradient.addColorStop(1, 'rgba(0, 229, 255, 0.00)');
+
+    const loadChart = new Chart(loadCtx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [
+                {
+                    label: '1 Min Load',
+                    borderColor: '#7c4dff',
+                    backgroundColor: l1Gradient,
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    pointHoverRadius: 5,
+                    pointBackgroundColor: '#7c4dff',
+                    data: [],
+                    fill: true,
+                    tension: 0.4
+                },
+                {
+                    label: '5 Min Load',
+                    borderColor: '#ff4081',
+                    backgroundColor: l5Gradient,
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    pointHoverRadius: 5,
+                    pointBackgroundColor: '#ff4081',
+                    data: [],
+                    fill: true,
+                    tension: 0.4
+                },
+                {
+                    label: '15 Min Load',
+                    borderColor: '#00e5ff',
+                    backgroundColor: l15Gradient,
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    pointHoverRadius: 5,
+                    pointBackgroundColor: '#00e5ff',
+                    data: [],
+                    fill: true,
+                    tension: 0.4
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                mode: 'index',
+                intersect: false
+            },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: 'rgba(15, 15, 27, 0.92)',
+                    titleFont: { family: 'Outfit', size: 12, weight: '700' },
+                    bodyFont: { family: 'JetBrains Mono', size: 13 },
+                    borderColor: 'rgba(255, 255, 255, 0.1)',
+                    borderWidth: 1,
+                    padding: 12,
+                    cornerRadius: 8,
+                    displayColors: true,
+                    callbacks: {
+                        label: function(context) {
+                            return ' ' + context.dataset.label + ': ' + context.parsed.y.toFixed(2);
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    grid: { display: false },
+                    ticks: {
+                        color: '#94a3b8',
+                        font: { family: 'Outfit', size: 10 },
+                        maxTicksLimit: 8
+                    }
+                },
+                y: {
+                    beginAtZero: true,
+                    grid: {
+                        color: 'rgba(255, 255, 255, 0.035)',
+                        lineWidth: 1
+                    },
+                    ticks: {
+                        color: '#94a3b8',
+                        font: { family: 'Outfit', size: 11 },
+                        callback: function(value) {
+                            return value.toFixed(2);
+                        }
+                    },
+                    title: {
+                        display: true,
+                        text: 'Load Average',
+                        color: '#94a3b8',
+                        font: { family: 'Outfit', size: 12, weight: '600' }
+                    }
+                }
+            }
+        }
+    });
+
     // ==================== UTILITY FUNCTIONS ====================
 
     // Auto-scaling speed formatter — converts raw Bytes/s into human-readable Bytes or bits units
@@ -858,6 +1003,7 @@
             case '1h':  return 60 * 60 * 1000;
             case '6h':  return 6 * 60 * 60 * 1000;
             case '24h': return 24 * 60 * 60 * 1000;
+            case '48h': return 48 * 60 * 60 * 1000; // 2 Days
             default:    return 5 * 60 * 1000;
         }
     }
@@ -867,7 +1013,7 @@
         activeTimeframe = tf;
 
         // Toggle active button styling
-        ['5m', '15m', '1h', '6h', '24h'].forEach(t => {
+        ['5m', '15m', '1h', '6h', '24h', '48h'].forEach(t => {
             const btn = document.getElementById('btn-tf-' + t);
             if (btn) btn.classList.toggle('active', t === tf);
         });
@@ -895,11 +1041,15 @@
             const start = Math.floor(i * bucketSize);
             const end   = Math.floor((i + 1) * bucketSize);
             let sumRx = 0, sumTx = 0, sumTime = 0, count = 0;
+            let sumL1 = 0, sumL5 = 0, sumL15 = 0;
 
             for (let j = start; j < end && j < dataPoints.length; j++) {
-                sumRx   += dataPoints[j].rx;
-                sumTx   += dataPoints[j].tx;
+                sumRx   += dataPoints[j].rx || 0;
+                sumTx   += dataPoints[j].tx || 0;
                 sumTime += dataPoints[j].t;
+                sumL1   += dataPoints[j].load_1 || 0;
+                sumL5   += dataPoints[j].load_5 || 0;
+                sumL15  += dataPoints[j].load_15 || 0;
                 count++;
             }
 
@@ -907,7 +1057,10 @@
                 result.push({
                     t:  Math.round(sumTime / count),
                     rx: sumRx / count,
-                    tx: sumTx / count
+                    tx: sumTx / count,
+                    load_1: sumL1 / count,
+                    load_5: sumL5 / count,
+                    load_15: sumL15 / count
                 });
             }
         }
@@ -922,6 +1075,10 @@
 
         if (timeframe === '5m' || timeframe === '15m') {
             return hrs + ':' + mins + ':' + secs;
+        }
+        if (timeframe === '48h') {
+            const dateStr = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+            return dateStr + ' ' + hrs + ':' + mins;
         }
         return hrs + ':' + mins;
     }
@@ -938,16 +1095,23 @@
         // Conversion factor: Bytes→MB/s or Bytes→Mbps
         var factor = primaryUnit === 'Bytes' ? (1024 * 1024) : (1000000 / 8);
 
-        // Use plain number arrays so Chart.js draws lines correctly
+        // Update Bandwidth Speed Chart
         chart.data.labels           = sourceData.map(function(v) { return formatLabelTime(v.t, activeTimeframe); });
-        chart.data.datasets[0].data = sourceData.map(function(v) { return v.rx / factor; });
-        chart.data.datasets[1].data = sourceData.map(function(v) { return v.tx / factor; });
+        chart.data.datasets[0].data = sourceData.map(function(v) { return (v.rx || 0) / factor; });
+        chart.data.datasets[1].data = sourceData.map(function(v) { return (v.tx || 0) / factor; });
 
-        // Store raw Bytes in a custom property for tooltip access
-        chart.data.datasets[0]._rawBytes = sourceData.map(function(v) { return v.rx; });
-        chart.data.datasets[1]._rawBytes = sourceData.map(function(v) { return v.tx; });
+        chart.data.datasets[0]._rawBytes = sourceData.map(function(v) { return v.rx || 0; });
+        chart.data.datasets[1]._rawBytes = sourceData.map(function(v) { return v.tx || 0; });
 
         chart.update('none');
+
+        // Update Server Load Chart
+        loadChart.data.labels           = sourceData.map(function(v) { return formatLabelTime(v.t, activeTimeframe); });
+        loadChart.data.datasets[0].data = sourceData.map(function(v) { return v.load_1 || 0; });
+        loadChart.data.datasets[1].data = sourceData.map(function(v) { return v.load_5 || 0; });
+        loadChart.data.datasets[2].data = sourceData.map(function(v) { return v.load_15 || 0; });
+
+        loadChart.update('none');
     }
 
     // ==================== UI HELPERS ====================
@@ -1021,8 +1185,15 @@
         // Update session stats
         updateSessionStatsUI();
 
-        // Push to live buffer (max 150 points ≈ 5 min at 2 s intervals)
-        liveBuffer.push({ t: now, rx: rxRaw, tx: txRaw });
+        // Push to live buffer (max 150 points ≈ 5 min at 2 s intervals, including server loads)
+        liveBuffer.push({ 
+            t: now, 
+            rx: rxRaw, 
+            tx: txRaw,
+            load_1: data.loadAvg ? data.loadAvg[0] : 0,
+            load_5: data.loadAvg ? data.loadAvg[1] : 0,
+            load_15: data.loadAvg ? data.loadAvg[2] : 0
+        });
         if (liveBuffer.length > 150) liveBuffer.shift();
 
         // Only re-render if we're viewing the 5 m live mode

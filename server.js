@@ -4,43 +4,14 @@ const http = require('http').createServer(app);
 const io = require('socket.io')(http);
 const fs = require('fs');
 const os = require('os');
+const db = require('./db');
 
 app.use(express.static('public'));
 
 // ==================== SERVER-SIDE HISTORY ====================
-
-// In-memory traffic history (stores up to 24 h of data points)
-let trafficHistory = [];
-
-// Prune entries older than 24 hours
-function pruneHistory() {
-    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-    trafficHistory = trafficHistory.filter(entry => entry.t >= cutoff);
-}
-
-// Schedule automatic midnight reset (server-local timezone)
-function scheduleMidnightReset() {
-    const now = new Date();
-    const tomorrow = new Date(now);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(0, 0, 0, 0);
-    const msUntilMidnight = tomorrow - now;
-
-    setTimeout(() => {
-        console.log('🌅 Midnight reset: Menghapus riwayat traffic.');
-        trafficHistory = [];
-        // Recurring reset every 24 h
-        setInterval(() => {
-            console.log('🌅 Midnight reset: Menghapus riwayat traffic.');
-            trafficHistory = [];
-        }, 24 * 60 * 60 * 1000);
-    }, msUntilMidnight);
-
-    const mins = Math.round(msUntilMidnight / 60000);
-    console.log(`⏰ Reset tengah malam dijadwalkan dalam ${mins} menit.`);
-}
-
-scheduleMidnightReset();
+// Riwayat traffic sekarang disimpan secara persisten di database SQLite (traffic.db)
+// selama 2 hari (48 jam). Server-side in-memory array dan reset tengah malam dinonaktifkan
+// untuk memastikan kontinuitas pencatatan data.
 
 // ==================== NETWORK TRAFFIC READING ====================
 
@@ -106,14 +77,17 @@ setInterval(() => {
     }
 
     const now = Date.now();
+    const loadAvg = os.loadavg();
 
-    // Store in server-side history
-    trafficHistory.push({ t: now, rx: rxSpeed, tx: txSpeed });
+    // Store in SQLite database (including bandwidth rx/tx speed and 1, 5, 15 min server loads)
+    db.saveTraffic(now, rxSpeed, txSpeed, loadAvg[0], loadAvg[1], loadAvg[2])
+        .catch(err => console.error("❌ Gagal menyimpan traffic ke SQLite:", err.message));
 
-    // Prune old entries every ~60 seconds (30 ticks × 2 s)
+    // Prune old entries (> 48 hours) every 5 minutes (150 ticks × 2 s)
     tickCount++;
-    if (tickCount % 30 === 0) {
-        pruneHistory();
+    if (tickCount % 150 === 0) {
+        db.pruneHistory()
+            .catch(err => console.error("❌ Gagal membersihkan data lama dari SQLite:", err.message));
     }
 
     // Emit live data to all connected clients
@@ -123,7 +97,7 @@ setInterval(() => {
         timestamp: now,
         simulated: !hasProcNetDev,
         interface: hasProcNetDev ? networkInterface : 'Simulated (macOS)',
-        loadAvg: os.loadavg()
+        loadAvg: loadAvg
     });
 }, 2000);
 
@@ -132,12 +106,16 @@ setInterval(() => {
 io.on('connection', (socket) => {
     console.log('👤 Client terhubung');
 
-    // Client requests history for a specific time range
-    socket.on('request-history', (data) => {
+    // Client requests history for a specific time range from SQLite database
+    socket.on('request-history', async (data) => {
         const rangeMs = data && data.rangeMs ? data.rangeMs : 5 * 60 * 1000;
-        const cutoff = Date.now() - rangeMs;
-        const filtered = trafficHistory.filter(entry => entry.t >= cutoff);
-        socket.emit('history-data', { range: data.range || '5m', points: filtered });
+        try {
+            const points = await db.getHistory(rangeMs);
+            socket.emit('history-data', { range: data.range || '5m', points: points });
+        } catch (err) {
+            console.error('❌ Gagal mengambil riwayat traffic:', err.message);
+            socket.emit('history-data', { range: data.range || '5m', points: [] });
+        }
     });
 
     socket.on('disconnect', () => {
